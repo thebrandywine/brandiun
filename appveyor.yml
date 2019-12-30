@@ -1,0 +1,107 @@
+version: '{build}'
+
+install:
+    # Set up Visual Studio build environment, 32-bit output with a 64-bit builder
+    # > Increment version number when newer version of Visual Studio supported by Appveyor
+    - cmd: '"C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/vcvarsall.bat" amd64_x86'
+    # Set up Conan package manager
+    - cmd: set PATH=%PATH%;%PYTHON%/Scripts/
+    - cmd: pip.exe install conan
+    - cmd: conan user # Create conan data directory
+    - cmd: conan --version
+
+init:
+    # Set "build version number" to "short-commit-hash" or when tagged to "tag name" (Travis style)
+    # Thanks to @jakoch and @ronaldbarendse
+    # Modified to also include the build number, distinguishes rebuilds of the same commit
+    # See comments on https://github.com/appveyor/ci/issues/691
+    #
+    # While it's possible to use 'Update-AppveyorBuild -Version' to change the build number, that
+    # breaks Github's "Details" link until the build completes.  Just change the build output.
+    - ps: |
+        if ($env:APPVEYOR_REPO_TAG -eq "true")
+        {
+            # Trim any starting 'v' from tags
+            $env:DEPLOY_IMAGE_NAME = "$($env:APPVEYOR_REPO_TAG_NAME.TrimStart("v"))-$env:APPVEYOR_BUILD_NUMBER"
+        } else {
+            $env:DEPLOY_IMAGE_NAME = "dev-$($env:APPVEYOR_REPO_COMMIT.Substring(0, 8))-$env:APPVEYOR_BUILD_NUMBER"
+        }
+
+build_script:
+    - ps: |
+        # Install Conan dependencies for 32-bit (x86) using the local directory's conanfile
+        conan install . --settings arch=x86
+        # > For statically-linked OpenSSL, specify: -s compiler="Visual Studio" -s compiler.runtime=MT
+        #   Then modify makefile.win to reference ..MT.lib instead.  Dynamic linking is preferred.
+
+        # Set up the variables for makefile.win
+        $env:OUTDIR = "$env:APPVEYOR_BUILD_FOLDER/build"
+        # Conan.io exports outputs to here, including OpenSSL
+        $env:PACKAGE_DIR = "$env:APPVEYOR_BUILD_FOLDER/bin"
+
+        # Build Fuzzball
+        # > NMake writes to standard error for the version header when it's not actually an error.
+        #   Treat all output as standard output instead.
+        #   See https://stackoverflow.com/questions/2095088/error-when-calling-3rd-party-executable-from-powershell-when-using-an-ide
+        cmd /c 'nmake /f %APPVEYOR_BUILD_FOLDER%/makefile.win 2>&1'
+
+        # Package and store the build results
+        # > File name of compressed output
+        $artifact_name = "fuzzball-win32-$env:DEPLOY_IMAGE_NAME"
+        # > Folder name stored inside compressed output
+        #   Don't include "...-$env:APPVEYOR_BUILD_VERSION" as that's now part of the artifact name
+        $artifact_root = "$env:APPVEYOR_BUILD_FOLDER/$artifact_name"
+        # > Exact filename for compressed output (change extension for different format)
+        $artifact_zip = "$artifact_name.zip"
+
+        echo "Preparing release artifact..."
+        mkdir "$artifact_root"
+        # Copy contents of game folder
+        cp -Recurse "$env:APPVEYOR_BUILD_FOLDER/game/*" "$artifact_root"
+        # Copy starter database folder
+        cp -Recurse "$env:APPVEYOR_BUILD_FOLDER/dbs" "$artifact_root"
+        # Copy documentation folders
+        cp -Recurse "$env:APPVEYOR_BUILD_FOLDER/docs" "$artifact_root"
+        md "$artifact_root/data/info"
+        cp "$env:APPVEYOR_BUILD_FOLDER/docs/mpi-intro" "$artifact_root/data/info"
+        cp "$env:APPVEYOR_BUILD_FOLDER/docs/mpi-intro2" "$artifact_root/data/info"
+        cp "$env:APPVEYOR_BUILD_FOLDER/docs/muf-tutorial" "$artifact_root/data/info"
+        cp "$env:APPVEYOR_BUILD_FOLDER/docs/changesfb7" "$artifact_root/data/info"
+        # Copy source and include folder
+        cp -Recurse "$env:APPVEYOR_BUILD_FOLDER/src" "$artifact_root"
+        cp -Recurse "$env:APPVEYOR_BUILD_FOLDER/include" "$artifact_root"
+        # Copy text help files to data folder
+        cp "$artifact_root/docs/*.txt" "$artifact_root/data/"
+        # Copy compiled binaries and libraries
+        cp -Recurse "$env:APPVEYOR_BUILD_FOLDER/build/*" "$artifact_root"
+        if ((Test-Path "$artifact_root/fbmuck.exe") -And (Test-Path "$artifact_root/restart.exe")) {
+            echo "Packaging release artifact..."
+            7z a "$artifact_zip" "$artifact_root"
+            Push-AppveyorArtifact "$artifact_zip"
+            echo "Packaging successful!"
+        } else {
+            echo "Could not find compiled Fuzzball or related executables, build failed"
+            Exit 1
+        }
+
+# Guidance for future maintainers: Powershell versus Windows Command Interpreter
+# Environment variables
+# > Powershell:  $env:NAME
+# > cmd:         %NAME%
+# Quoting
+# > Powershell:  $env:NAME = "TEST"
+#                echo "Test message"
+# > cmd:         set NAME=TEST
+#                echo Test message
+# Running programs with spaces
+# > Powershell:  & "C:\path to\app.exe" Argument1 Argument2
+# > cmd:         "C:\path to\app.exe" Argument1 Argument2
+# (No difference if without spaces)
+# Running programs in current directory
+# > Powershell:  .\app.exe
+# > cmd:         app.exe
+# Paths
+# > Powershell:  'C:/path/to/file' or 'C:\path\to\file'
+# > cmd:         'C:\path\to\file' only
+
+# Thanks to TheOneRing (Freenode #quassel, Github) for initial help with setting up Appveyor
