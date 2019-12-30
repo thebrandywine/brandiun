@@ -1,0 +1,6 @@
+sudo gem install muck
+sudo useradd -r -m -d /opt/muck muck
+sudo -u muck mkdir /opt/muck/config
+sudo -u muck mkdir /opt/muck/storage
+sudo -u muck ssh-keygen -f /opt/muck/ssh-key
+# Follow the instructions to generate a keypair. Do not add a passphrase.
