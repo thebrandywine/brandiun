@@ -1,0 +1,52 @@
+server do
+  # The hostname of the server you wish to backup. Used to connect with SSH and
+  # the name of the directory used for storing the backups.
+  hostname "myserver.example.com"
+
+  # How often you wish to take a backup (in minutes)
+  frequency 60
+
+  ssh do
+    # The user that should connect to the server with SSH
+    username 'root'
+    # The SSH port
+    port 22
+    # The path to the SSH key that you will authenticate with
+    key "/opt/muck/ssh-key"
+  end
+
+  storage do
+    # Specifies the directory that backups will be stored for this server. You
+    # can use :hostname to insert the name of the hostname automatically and
+    # :database to insert the database name.
+    path "/opt/muck/data/:hostname/:database"
+    # The number of "master" bacups which should be kept before being archived.
+    keep 50
+  end
+
+  retention do
+    # How many hourly backups do you wish to keep?
+    hourly 24
+    # How many daily backups do you wish to keep?
+    daily 7
+    # How many monthly backups do you wish to keep?
+    monthly 12
+    # How many yearly backups do you wish to keep
+    yearly 8
+  end
+
+  database do
+    # The name of the database
+    name "example"
+    # The hostname (as accessed from the server) to connect to
+    hostname "127.0.0.1"
+    # The username to authenticate to MySQL with
+    username "root"
+    # The password to authenticate to MySQL with
+    password nil
+  end
+
+  # The database block above can be repeated within the context of the server
+  # to backup multiple databases from the same server.
+
+end
